@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,5 +15,17 @@ func main() {
 		})
 	})
 
+	r.GET("/health", healthCheck)
+
 	r.Run(":8080")
+}
+
+var startTime = time.Now()
+
+func healthCheck(c *gin.Context) {
+	uptime := time.Since(startTime).Truncate(time.Second)
+	c.JSON(200, gin.H{
+		"status": "ok",
+		"uptime": uptime.String(),
+	})
 }
