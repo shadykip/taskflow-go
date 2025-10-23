@@ -7,6 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func TestRootEndpoint(t *testing.T) {
@@ -42,4 +44,16 @@ func TestHealthEndpoint(t *testing.T) {
 	body := resp.Body.String()
 	assert.Contains(t, body, `"status":"ok"`)
 	assert.Contains(t, body, `"uptime"`)
+}
+
+func TestDatabaseConnection(t *testing.T) {
+	// Reuse the same DSN as in main.go (in real life, use test DB — but for Day 3, this is fine)
+	dsn := "host=localhost user=dev password=linspace dbname=taskflow port=5432 sslmode=disable"
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+
+	// Ping the database
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	assert.NoError(t, sqlDB.Ping())
 }
