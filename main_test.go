@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -56,4 +57,35 @@ func TestDatabaseConnection(t *testing.T) {
 	sqlDB, err := db.DB()
 	assert.NoError(t, err)
 	assert.NoError(t, sqlDB.Ping())
+}
+func TestRegisterUser_ValidInput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.Default()
+	r.POST("/register", registerUser)
+
+	jsonBody := `{"email":"user4@example.com","password":"mypassword"}`
+	req, _ := http.NewRequest("POST", "/register", strings.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusCreated, resp.Code)
+	assert.Contains(t, resp.Body.String(), "user4@example.com")
+}
+
+func TestRegisterUser_InvalidEmail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.Default()
+	r.POST("/register", registerUser)
+
+	jsonBody := `{"email":"invalid","password":"123"}`
+	req, _ := http.NewRequest("POST", "/register", strings.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Contains(t, resp.Body.String(), "Invalid email")
 }

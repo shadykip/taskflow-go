@@ -1,9 +1,12 @@
 package main
 
 import (
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -18,6 +21,12 @@ type User struct {
 }
 
 var db *gorm.DB
+
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+func isValidEmail(email string) bool {
+	return emailRegex.MatchString(strings.TrimSpace(email))
+}
 
 func main() {
 	// connect to db
@@ -42,6 +51,7 @@ func main() {
 
 	r.GET("/health", healthCheck)
 	r.GET("/users", getUsers)
+	r.POST("/register", registerUser)
 
 	r.Run(":8080")
 }
@@ -66,4 +76,47 @@ func getUsers(c *gin.Context) {
 	}
 	// Return only safe fields (password is omitted by JSON tag)
 	c.JSON(200, users)
+}
+
+func registerUser(c *gin.Context) {
+	//parse input
+	var input struct {
+		Email    string `json:"Email" binding : "required"`
+		Password string `json:"password" binding:"required,min=6`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid JSON or missing fields"})
+	}
+	if !isValidEmail(input.Email) {
+		c.JSON(400, gin.H{"error": "Invalid email format"})
+		return
+	}
+
+	//Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to hash password"})
+		return
+	}
+
+	user := User{
+		Email:    input.Email,
+		Password: string(hashedPassword),
+	}
+	result := db.Create(&user)
+	if result.Error != nil {
+		// Handle duplicate email (PostgreSQL unique constraint)
+		if strings.Contains(result.Error.Error(), "duplicate key") {
+			c.JSON(400, gin.H{"error": "Email already registered"})
+			return
+		}
+		c.JSON(500, gin.H{"error": "Database error"})
+		return
+	}
+	c.JSON(201, gin.H{
+		"id":         user.ID,
+		"email":      user.Email,
+		"created_at": user.CreatedAt,
+	})
 }
