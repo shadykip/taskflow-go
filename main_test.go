@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -88,4 +89,37 @@ func TestRegisterUser_InvalidEmail(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 	assert.Contains(t, resp.Body.String(), "Invalid email")
+}
+func TestLogin_ValidCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.Default()
+	r.POST("/login", loginUser)
+
+	// First, register a user (for test)
+	db.Exec("INSERT INTO users (email, password, created_at) VALUES (?, ?, ?)",
+		"login@test.com",
+		"$2a$10$Xe4wnrV2VQYc8qJZxKZ5.eS6u1U1X6y7Y8Z9a0b1c2d3e4f5g6h7i8j9k", // pre-hashed "password123"
+		time.Now())
+
+	jsonBody := `{"email":"login@test.com","password":"password123"}`
+	req, _ := http.NewRequest("POST", "/login", strings.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Contains(t, resp.Body.String(), "token")
+}
+
+func TestProtectedRoute_WithoutToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.Default()
+	r.GET("/users", authMiddleware(), getUsers)
+
+	req, _ := http.NewRequest("GET", "/users", nil)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusUnauthorized, resp.Code)
 }

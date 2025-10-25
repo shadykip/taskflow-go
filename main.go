@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+
 	"golang.org/x/crypto/bcrypt"
 
 	"gorm.io/driver/postgres"
@@ -21,6 +23,51 @@ type User struct {
 }
 
 var db *gorm.DB
+
+var jwtSecret = []byte("taskflow-secret-key-change-in-prod")
+
+func generateToken(userID uint) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(), // 24h expiry
+	})
+	return token.SignedString(jwtSecret)
+}
+
+// Auth Middleware
+func authMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		authHeader := ctx.GetHeader("Authorization")
+		if authHeader == "" {
+			ctx.AbortWithStatusJSON(401, gin.H{"error": "Missing Auth Header"})
+			return
+		}
+		// Expect: "Bearer <token>"
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			ctx.AbortWithStatusJSON(401, gin.H{"error": "Authorization header must be Bearer <token>"})
+			return
+		}
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			return jwtSecret, nil
+		})
+		if err != nil || !token.Valid {
+			ctx.AbortWithStatusJSON(401, gin.H{"error": "Invalid or expired token"})
+			return
+		}
+		// Extract user_id from token
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			if userID, ok := claims["user_id"].(float64); ok {
+				// Store user ID in context for handlers
+				ctx.Set("user_id", uint(userID))
+				ctx.Next()
+				return
+			}
+		}
+
+		ctx.AbortWithStatusJSON(401, gin.H{"error": "Invalid token claims"})
+	}
+}
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 
@@ -50,8 +97,14 @@ func main() {
 	})
 
 	r.GET("/health", healthCheck)
-	r.GET("/users", getUsers)
 	r.POST("/register", registerUser)
+	r.POST("/login", loginUser)
+
+	protected := r.Group("/")
+	protected.Use(authMiddleware())
+	{
+		protected.GET("/users", getUsers)
+	}
 
 	r.Run(":8080")
 }
@@ -81,7 +134,7 @@ func getUsers(c *gin.Context) {
 func registerUser(c *gin.Context) {
 	//parse input
 	var input struct {
-		Email    string `json:"Email" binding : "required"`
+		Email    string `json:"email" binding : "required"`
 		Password string `json:"password" binding:"required,min=6`
 	}
 
@@ -118,5 +171,41 @@ func registerUser(c *gin.Context) {
 		"id":         user.ID,
 		"email":      user.Email,
 		"created_at": user.CreatedAt,
+	})
+}
+
+func loginUser(c *gin.Context) {
+	var input struct {
+		Email    string `json:"email" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		return
+	}
+	// find user by email
+	var user User
+	if err := db.Where("email = ?", input.Email).First(&user).Error; err != nil {
+		c.JSON(401, gin.H{"error": "Invalid email or password"})
+		return
+	}
+	// check password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
+		c.JSON(401, gin.H{"error": "Invalid email or password"})
+		return
+	}
+
+	// Generate token
+	token, err := generateToken(user.ID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to generate token"})
+		return
+	}
+	c.JSON(200, gin.H{
+		"token": token,
+		"user": gin.H{
+			"id":    user.ID,
+			"email": user.Email,
+		},
 	})
 }
