@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -32,6 +33,14 @@ func generateToken(userID uint) (string, error) {
 		"exp":     time.Now().Add(24 * time.Hour).Unix(), // 24h expiry
 	})
 	return token.SignedString(jwtSecret)
+}
+
+// Simulate async email sending
+func sendWelcomeEmail(email string) {
+	// todo: connect to SMTP, send HTML email, handle retries
+	// For now: just log + simulate delay
+	time.Sleep(500 * time.Millisecond) // simulate network delay
+	fmt.Printf("[EMAIL SENT] Welcome email to: %s\n", email)
 }
 
 // Auth Middleware
@@ -104,6 +113,7 @@ func main() {
 	protected.Use(authMiddleware())
 	{
 		protected.GET("/users", getUsers)
+		protected.GET("/me", getMe)
 	}
 
 	r.Run(":8080")
@@ -167,6 +177,7 @@ func registerUser(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "Database error"})
 		return
 	}
+	go sendWelcomeEmail(user.Email)
 	c.JSON(201, gin.H{
 		"id":         user.ID,
 		"email":      user.Email,
@@ -207,5 +218,24 @@ func loginUser(c *gin.Context) {
 			"id":    user.ID,
 			"email": user.Email,
 		},
+	})
+}
+
+func getMe(c *gin.Context) {
+	//Get user_id from context set by authMiddleware
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.AbortWithStatusJSON(500, gin.H{"error": "User ID not found in context"})
+		return
+	}
+	var user User
+	if err := db.First(&user, userID).Error; err != nil {
+		c.AbortWithStatusJSON(404, gin.H{"error": "User not found"})
+		return
+	}
+	c.JSON(200, gin.H{
+		"id":         user.ID,
+		"email":      user.Email,
+		"created_at": user.CreatedAt,
 	})
 }

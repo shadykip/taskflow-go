@@ -123,3 +123,22 @@ func TestProtectedRoute_WithoutToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, resp.Code)
 }
+func TestRegisterUser_DoesNotWaitForEmail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.Default()
+	r.POST("/register", registerUser)
+
+	start := time.Now()
+	jsonBody := `{"email":"soi@test.com","password":"mypassword"}`
+	req, _ := http.NewRequest("POST", "/register", strings.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	duration := time.Since(start)
+
+	assert.Equal(t, http.StatusCreated, resp.Code)
+	// Should respond in << 500ms (even though email takes 500ms)
+	assert.Less(t, duration, 300*time.Millisecond, "Registration should not wait for email")
+}
