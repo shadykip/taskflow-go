@@ -25,7 +25,7 @@ type User struct {
 
 var db *gorm.DB
 
-var jwtSecret = []byte("taskflow-secret-key-change-in-prod")
+var jwtSecret = []byte("taskflow-secret-key-change-in-prod") //TODO: Move to env var (Day 8+)”
 
 func generateToken(userID uint) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -86,7 +86,7 @@ func isValidEmail(email string) bool {
 
 func main() {
 	// connect to db
-	dsn := "host=localhost user=dev password=linspace dbname=taskflow port=5432 sslmode=disable"
+	dsn := "host=localhost user=dev password=linspace dbname=taskflow port=5432 sslmode=disable" // TODO: Move to env var”
 	var err error
 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
