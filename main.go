@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
 	"regexp"
 	"strings"
+	"syscall"
+
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -85,6 +91,14 @@ func isValidEmail(email string) bool {
 }
 
 func main() {
+	if os.Getenv("SKIP_DB") == "1" {
+		r := gin.Default()
+		r.GET("/health", func(c *gin.Context) {
+			c.JSON(200, gin.H{"status": "ok", "mode": "safe"})
+		})
+		r.Run(":8080")
+		return
+	}
 	// connect to db
 	dsn := "host=localhost user=dev password=linspace dbname=taskflow port=5432 sslmode=disable" // TODO: Move to env var”
 	var err error
@@ -115,8 +129,32 @@ func main() {
 		protected.GET("/users", getUsers)
 		protected.GET("/me", getMe)
 	}
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: r,
+	}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			panic("❌ Failed to start server: " + err.Error())
+		}
+	}()
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	fmt.Println("Shutting down server...")
+	// Give active requests 10 seconds to finish
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	r.Run(":8080")
+	// Shutdown server gracefully
+	if err := server.Shutdown(ctx); err != nil {
+		panic("Server forced to shutdown: " + err.Error())
+	}
+
+	fmt.Println("Server exiting")
+
+	// r.Run(":8080")
 }
 
 var startTime = time.Now()
